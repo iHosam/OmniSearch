@@ -1,0 +1,22 @@
+services:
+  omnisearch:
+    build: .
+    image: omnisearch:latest
+    container_name: omnisearch
+    restart: unless-stopped
+    ports:
+      - "5050:5050"
+    environment:
+      - PORT=5050
+      - DB_PATH=/app/data/omnisearch.db
+      - RADARR_BASE=http://192.168.1.91:7878/api/v3
+      - RADARR_KEY=b59830b6ed5c4656a723758e061f5df5
+      - SONARR_BASE=http://192.168.1.91:8989/api/v3
+      - SONARR_KEY=8708c53da0ef45c0ae01d3a9c8532d28
+      - PROWLARR_BASE=http://192.168.1.91:9696/api/v1
+      - PROWLARR_KEY=cf60f1ee0d91468fb77a068bbfce6c38
+      - QBIT_HOST=http://192.168.1.91:8090
+      - QBIT_USER=admin
+      - QBIT_PASS=Hos@2030
+    volumes:
+      - ./data:/app/data
