@@ -7,6 +7,7 @@
 - 🎌 **Anime** (synced to Sonarr)
 - 🎧 **Audiobooks** (synced with Prowlarr & qBittorrent / Audiobookshelf)
 - 📖 **E-books** (synced with OpenLibrary, Prowlarr & qBittorrent)
+- 📱 **Apps & Software** (Direct modded APKs from LiteAPKs, verified forum releases via Mobilism + FlareSolverr, and desktop/mobile torrents via Prowlarr)
 - 🔞 **Adult / NSFW Content** (synced with Prowlarr adult indexers & qBittorrent)
 
 ---

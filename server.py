@@ -13,6 +13,8 @@ import http.cookiejar
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn
 import threading
+import concurrent.futures
+import html
 import time
 import os
 import re
@@ -27,6 +29,11 @@ SONARR_BASE = os.getenv("SONARR_BASE", "http://192.168.1.91:8989/api/v3")
 
 PROWLARR_KEY = os.getenv("PROWLARR_KEY", "cf60f1ee0d91468fb77a068bbfce6c38")
 PROWLARR_BASE = os.getenv("PROWLARR_BASE", "http://192.168.1.91:9696/api/v1")
+
+FLARESOLVERR_BASE = os.getenv("FLARESOLVERR_BASE", "http://192.168.1.91:8191/v1")
+FS_SESSION_ID = "omnisearch_mobilism"
+fs_session_lock = threading.Lock()
+fs_session_initialized = False
 
 QBIT_HOST = os.getenv("QBIT_HOST", "http://192.168.1.91:8090")
 QBIT_USER = os.getenv("QBIT_USER", "admin")
@@ -504,6 +511,239 @@ def search_prowlarr_adult(query):
     results.sort(key=lambda x: x.get("seeders", 0), reverse=True)
     return results[:40]
 
+# --- Apps & Software Helpers (LiteAPKs, Mobilism via FlareSolverr, Prowlarr Software) ---
+def ensure_flaresolverr_session():
+    global fs_session_initialized
+    with fs_session_lock:
+        if fs_session_initialized:
+            return
+        try:
+            req = urllib.request.Request(
+                FLARESOLVERR_BASE,
+                data=json.dumps({"cmd": "sessions.list"}).encode(),
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read().decode())
+                if FS_SESSION_ID not in data.get("sessions", []):
+                    req_c = urllib.request.Request(
+                        FLARESOLVERR_BASE,
+                        data=json.dumps({"cmd": "sessions.create", "session": FS_SESSION_ID}).encode(),
+                        headers={"Content-Type": "application/json"}
+                    )
+                    urllib.request.urlopen(req_c, timeout=10)
+            fs_session_initialized = True
+        except Exception as e:
+            print("FlareSolverr session init warning:", e)
+
+def search_liteapks(query):
+    results = []
+    try:
+        url = f"https://liteapks.com/?s={urllib.parse.quote(query)}"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            page = resp.read().decode('utf-8', errors='ignore')
+            articles = re.findall(r'<article[^>]*>.*?</article>', page, re.DOTALL)
+            for art in articles[:15]:
+                link_m = re.search(r'<a\s+[^>]*href="([^"]+)"', art)
+                img_m = re.search(r'<img\s+[^>]*src="([^"]+)"', art)
+                title_m = re.search(r'<h2[^>]*>(.*?)</h2>', art, re.DOTALL)
+                ver_m = re.search(r'aria-label="Version ([^"]+)"', art)
+                mod_m = re.search(r'<p class="[^"]*text-orange[^"]*">\s*(.*?)\s*</p>', art, re.DOTALL)
+                size_m = re.search(r'<span>(\d+[KMGT]?)</span>', art)
+
+                link = link_m.group(1) if link_m else ""
+                icon = img_m.group(1) if img_m else ""
+                title = html.unescape(title_m.group(1).strip()) if title_m else ""
+                version = ver_m.group(1).strip() if ver_m else ""
+                mod_info = html.unescape(mod_m.group(1).strip()) if mod_m else "Direct Mod APK"
+                size = size_m.group(1).strip() if size_m else ""
+
+                if not title or not link:
+                    continue
+
+                results.append({
+                    "id": link,
+                    "title": title,
+                    "version": version,
+                    "author": f"LiteAPKs • {size} • {version}" if size else f"LiteAPKs • {version}",
+                    "overview": f"Source: LiteAPKs Direct. Mod: {mod_info}. Version: {version}. Size: {size}.",
+                    "mod_info": mod_info,
+                    "size": size,
+                    "poster": icon,
+                    "url": link,
+                    "download_url": "",
+                    "source": "LiteAPKs",
+                    "backend": "app",
+                    "type": "app",
+                    "type_label": "📱 LiteAPKs (DDL)",
+                    "is_torrent": False,
+                    "raw": {
+                        "title": title,
+                        "url": link,
+                        "source": "LiteAPKs",
+                        "mod_info": mod_info,
+                        "version": version,
+                        "size": size,
+                        "is_torrent": False
+                    }
+                })
+    except Exception as e:
+        print("LiteAPKs search error:", e)
+    return results
+
+def search_mobilism(query):
+    results = []
+    try:
+        ensure_flaresolverr_session()
+        payload = json.dumps({
+            "cmd": "request.get",
+            "url": f"https://forum.mobilism.org/search.php?keywords={urllib.parse.quote(query)}&sr=topics&sf=titleonly",
+            "session": FS_SESSION_ID,
+            "maxTimeout": 25000
+        }).encode("utf-8")
+        req = urllib.request.Request(FLARESOLVERR_BASE, data=payload, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode("utf-8", errors="ignore"))
+            if data.get("status") != "ok":
+                return []
+            res_html = data.get("solution", {}).get("response", "")
+            topics = re.findall(r'<a\s+[^>]*href="([^"]*viewtopic\.php[^"]*)"[^>]*>(.*?)</a>', res_html, re.DOTALL | re.IGNORECASE)
+            seen_urls = set()
+            for href, raw_title in topics:
+                clean_title = html.unescape(re.sub(r'<[^>]+>', '', raw_title).strip())
+                if not clean_title or len(clean_title) < 4:
+                    continue
+                if "Topic" in clean_title and "Announcement" in clean_title:
+                    continue
+
+                if href.startswith("./"):
+                    href = "https://forum.mobilism.org/" + href[2:]
+                elif href.startswith("/"):
+                    href = "https://forum.mobilism.org" + href
+                elif not href.startswith("http"):
+                    href = "https://forum.mobilism.org/" + href
+
+                clean_url = href.split("&sid=")[0]
+                if clean_url in seen_urls:
+                    continue
+                seen_urls.add(clean_url)
+
+                ver_match = re.search(r'v(\d+[\.\d\w\-_]+)', clean_title)
+                version = "v" + ver_match.group(1) if ver_match else ""
+
+                tags = re.findall(r'\[([^\]]+)\]', clean_title)
+                mod_tag = ", ".join(tags) if tags else "Forum Mod"
+
+                poster_svg = f"""data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="450" viewBox="0 0 300 450"><defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="%231e293b"/><stop offset="50%" stop-color="%230f172a"/><stop offset="100%" stop-color="%23020617"/></linearGradient></defs><rect width="100%" height="100%" fill="url(%23g)" rx="12"/><circle cx="150" cy="180" r="50" fill="%2338bdf8" opacity="0.2"/><text x="150" y="195" font-family="sans-serif" font-size="44" font-weight="bold" fill="%2338bdf8" text-anchor="middle">📱</text><text x="150" y="270" font-family="sans-serif" font-size="15" font-weight="bold" fill="%23e2e8f0" text-anchor="middle">MOBILISM</text><text x="150" y="295" font-family="sans-serif" font-size="12" fill="%2394a3b8" text-anchor="middle">Verified Release</text></svg>"""
+
+                results.append({
+                    "id": clean_url,
+                    "title": clean_title,
+                    "version": version,
+                    "author": f"Mobilism • {mod_tag}",
+                    "overview": f"Source: Mobilism Forum. Tags: {mod_tag}. Click to view release thread and download.",
+                    "mod_info": mod_tag,
+                    "size": "",
+                    "poster": poster_svg,
+                    "url": clean_url,
+                    "download_url": "",
+                    "source": "Mobilism",
+                    "backend": "app",
+                    "type": "app",
+                    "type_label": "📱 Mobilism (Forum)",
+                    "is_torrent": False,
+                    "raw": {
+                        "title": clean_title,
+                        "url": clean_url,
+                        "source": "Mobilism",
+                        "mod_info": mod_tag,
+                        "is_torrent": False
+                    }
+                })
+    except Exception as e:
+        print("Mobilism search error:", e)
+    return results[:20]
+
+def search_prowlarr_software(query):
+    results = []
+    try:
+        url = f"{PROWLARR_BASE}/search?query={urllib.parse.quote(query)}&categories=4000"
+        req = urllib.request.Request(url, headers={"X-Api-Key": PROWLARR_KEY})
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            data = json.loads(resp.read().decode())
+            for r in data:
+                title = r.get("title", "").strip()
+                if not title:
+                    continue
+                size_bytes = r.get("size", 0)
+                if size_bytes > 1024 * 1024 * 1024:
+                    size_str = f"{round(size_bytes / (1024 * 1024 * 1024), 2)} GB"
+                else:
+                    size_str = f"{round(size_bytes / (1024 * 1024), 1)} MB"
+
+                download_url = r.get("downloadUrl") or r.get("guid") or r.get("magnetUrl") or ""
+                indexer = r.get("indexer", "Software Torrent")
+                seeders = r.get("seeders", 0)
+
+                ver_match = re.search(r'v(\d+[\.\d\w\-_]+)', title)
+                version = "v" + ver_match.group(1) if ver_match else ""
+
+                poster_svg = f"""data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="450" viewBox="0 0 300 450"><defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="%23064e3b"/><stop offset="50%" stop-color="%23022c22"/><stop offset="100%" stop-color="%23021f18"/></linearGradient></defs><rect width="100%" height="100%" fill="url(%23g)" rx="12"/><circle cx="150" cy="180" r="50" fill="%2310b981" opacity="0.2"/><text x="150" y="195" font-family="sans-serif" font-size="44" font-weight="bold" fill="%2310b981" text-anchor="middle">💻</text><text x="150" y="270" font-family="sans-serif" font-size="15" font-weight="bold" fill="%23a7f3d0" text-anchor="middle">SOFTWARE TORRENT</text><text x="150" y="295" font-family="sans-serif" font-size="12" fill="%236ee7b7" text-anchor="middle">{indexer}</text></svg>"""
+
+                results.append({
+                    "id": r.get("guid") or download_url or title,
+                    "title": title,
+                    "version": version,
+                    "author": f"{indexer} • {size_str} • {seeders} seeds",
+                    "overview": f"Indexed by {indexer}. Size: {size_str} | Seeders: {seeders}.",
+                    "mod_info": f"{indexer} ({seeders} seeds)",
+                    "size": size_str,
+                    "poster": poster_svg,
+                    "url": download_url,
+                    "download_url": download_url,
+                    "source": indexer,
+                    "seeders": seeders,
+                    "backend": "app",
+                    "type": "app",
+                    "type_label": "💻 Torrent Software",
+                    "is_torrent": True,
+                    "raw": {
+                        "title": title,
+                        "download_url": download_url,
+                        "indexer": indexer,
+                        "seeders": seeders,
+                        "size_str": size_str,
+                        "is_torrent": True
+                    }
+                })
+    except Exception as e:
+        print("Prowlarr software search error:", e)
+    results.sort(key=lambda x: x.get("seeders", 0), reverse=True)
+    return results[:25]
+
+def search_apps_software(query):
+    results = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+        f_lite = executor.submit(search_liteapks, query)
+        f_mob = executor.submit(search_mobilism, query)
+        f_prow = executor.submit(search_prowlarr_software, query)
+
+        try:
+            results.extend(f_lite.result())
+        except Exception as e:
+            print("LiteAPKs thread error:", e)
+        try:
+            results.extend(f_mob.result())
+        except Exception as e:
+            print("Mobilism thread error:", e)
+        try:
+            results.extend(f_prow.result())
+        except Exception as e:
+            print("Prowlarr software thread error:", e)
+
+    return results
+
 # --- Request Tracking Helpers ---
 def save_db_request(req_type, title, year="", author="", overview="", poster="", external_id="", status="submitted", issue_message="", selected_release=""):
     con = sqlite3.connect(DB_PATH)
@@ -572,6 +812,8 @@ class OmniSearchHandler(BaseHTTPRequestHandler):
                 results.extend(search_sonarr_series(q, filter_anime=True))
             if cat in ["all", "audiobooks", "ebooks"]:
                 results.extend(search_books_openlibrary(q))
+            if cat in ["all", "apps"]:
+                results.extend(search_apps_software(q))
             if cat == "adult" or (cat == "all" and nsfw):
                 results.extend(search_prowlarr_adult(q))
 
@@ -783,6 +1025,31 @@ class OmniSearchHandler(BaseHTTPRequestHandler):
             self.send_json({"success": ok, "message": f"Grabbed release from {indexer}! Sent to qBittorrent (adult)." if ok else f"qBittorrent error: {msg}"})
             return
 
+        elif parsed.path == "/api/request_app_torrent":
+            raw = data.get("raw", {})
+            download_url = data.get("download_url") or raw.get("download_url") or ""
+            title = data.get("title") or raw.get("title") or "Software Release"
+            indexer = data.get("indexer") or raw.get("indexer") or "Software Torrent"
+            size_str = data.get("size") or raw.get("size_str") or ""
+
+            if not download_url:
+                self.send_json({"success": False, "message": "No download URL or magnet link available for this release."})
+                return
+
+            ok, msg = qbit_add_torrent(download_url, category="software")
+            status = "downloading" if ok else "failed"
+            save_db_request("app", title, "", indexer, f"Size: {size_str} • {indexer}", "", download_url, status, f"Sent to qBittorrent ({indexer})", selected_release=title)
+            self.send_json({"success": ok, "message": f"Grabbed release from {indexer}! Sent to qBittorrent (software)." if ok else f"qBittorrent error: {msg}"})
+            return
+
+        elif parsed.path == "/api/log_app_view":
+            title = data.get("title", "App Release")
+            source = data.get("source", "App")
+            url = data.get("url", "")
+            save_db_request("app", title, "", source, f"Direct link via {source}", "", url, "completed", f"Opened release link ({source})", selected_release=url)
+            self.send_json({"success": True})
+            return
+
     def send_json(self, obj):
         body = json.dumps(obj).encode("utf-8")
         self.send_response(200)
@@ -969,6 +1236,11 @@ class OmniSearchHandler(BaseHTTPRequestHandler):
             background: rgba(244, 63, 94, 0.25) !important;
             color: #fb7185 !important;
             border-color: rgba(244, 63, 94, 0.5) !important;
+        }
+        .type-badge.app {
+            background: rgba(14, 165, 233, 0.25) !important;
+            color: #38bdf8 !important;
+            border-color: rgba(56, 189, 248, 0.5) !important;
         }
 
         .media-grid {
@@ -1297,7 +1569,7 @@ class OmniSearchHandler(BaseHTTPRequestHandler):
         <header>
             <div class="logo-badge">⚡ OmniSearch 2.1 Standalone</div>
             <h1>Unified Media Search & Requester</h1>
-            <p class="subtitle">Search movies, TV shows, anime, ebooks, and audiobooks. Pick individual episodes or preferred formats.</p>
+            <p class="subtitle">Search movies, TV shows, anime, ebooks, audiobooks, apps, and software. Direct DDL & torrent dispatch.</p>
         </header>
 
         <div class="tabs">
@@ -1309,12 +1581,13 @@ class OmniSearchHandler(BaseHTTPRequestHandler):
         <div id="searchTab">
             <div class="search-box">
                 <select id="searchCategory" onchange="onCategoryChange()">
-                    <option value="all">🌐 All Media</option>
+                    <option value="all">🌐 All Media & Apps</option>
                     <option value="movies">🎬 Movies (Radarr)</option>
                     <option value="tv">📺 TV Shows (Sonarr)</option>
                     <option value="anime">⛩️ Anime (Sonarr)</option>
                     <option value="audiobooks">🎧 Audiobooks (qBittorrent)</option>
                     <option value="ebooks">📚 Ebooks (qBittorrent)</option>
+                    <option value="apps">📱 Apps & Software (LiteAPKs, Mobilism, Torrents)</option>
                     <option value="adult">🔞 Adult / NSFW (Prowlarr)</option>
                 </select>
                 <div class="nsfw-toggle-wrap" title="Include Adult & NSFW Content" onclick="toggleNsfwCheckbox(event)">
@@ -1324,7 +1597,7 @@ class OmniSearchHandler(BaseHTTPRequestHandler):
                     </label>
                     <span class="nsfw-label">🔞 NSFW</span>
                 </div>
-                <input type="text" id="searchInput" placeholder="Search movies, TV, anime, books, or adult releases..." onkeydown="if(event.key==='Enter') executeSearch()">
+                <input type="text" id="searchInput" placeholder="Search movies, TV, anime, books, apps, or adult releases..." onkeydown="if(event.key==='Enter') executeSearch()">
                 <button class="search-btn" id="searchSubmitBtn" onclick="executeSearch()">Search</button>
             </div>
 
@@ -1447,6 +1720,78 @@ class OmniSearchHandler(BaseHTTPRequestHandler):
             `;
         }
 
+        function renderAppModal(item) {
+            const dyn = document.getElementById('modalDynamicContent');
+            const raw = item.raw || {};
+            const isTorrent = item.is_torrent;
+
+            let actionButtons = '';
+            if (isTorrent) {
+                actionButtons = `
+                    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:16px;">
+                        <button class="btn-download-action" style="background:#059669; padding:10px 22px;" onclick="submitAppTorrentRequest()">⚡ Send Torrent to qBittorrent</button>
+                        ${item.download_url ? `<button class="tab-btn" style="padding:10px 16px;" onclick="navigator.clipboard.writeText('${item.download_url}'); showToast('Magnet / Download link copied to clipboard!', true);">🧲 Copy Torrent Link</button>` : ''}
+                    </div>
+                `;
+            } else {
+                actionButtons = `
+                    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:16px;">
+                        <button class="btn-download-action" style="background:#0284c7; padding:10px 22px;" onclick="openAppDirectLink('${item.url}')">🔗 Open Release & Download (Direct)</button>
+                        <button class="tab-btn" style="padding:10px 16px;" onclick="navigator.clipboard.writeText('${item.url}'); showToast('Direct release link copied to clipboard!', true);">📋 Copy Link</button>
+                    </div>
+                `;
+            }
+
+            dyn.innerHTML = `
+                <div style="background:#0f172a; padding:20px; border-radius:12px; border:1px solid rgba(56, 189, 248, 0.35);">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                        <h4 style="font-size:16px; color:#38bdf8;">📱 ${item.source || 'App'} Package Details</h4>
+                        <span style="background:rgba(56, 189, 248, 0.2); color:#38bdf8; padding:3px 10px; border-radius:6px; font-weight:bold; font-size:12px;">${item.source || 'App'}</span>
+                    </div>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:16px; background:rgba(0,0,0,0.3); padding:12px; border-radius:8px;">
+                        <div><span style="color:var(--text-muted); font-size:12px;">Version:</span> <b style="color:#f3f4f6;">${item.version || 'Latest'}</b></div>
+                        <div><span style="color:var(--text-muted); font-size:12px;">Package Size:</span> <b style="color:#f3f4f6;">${item.size || raw.size_str || 'N/A'}</b></div>
+                        <div style="grid-column: span 2;"><span style="color:var(--text-muted); font-size:12px;">Mod / Notes:</span> <b style="color:#34d399;">${item.mod_info || 'Direct Package'}</b></div>
+                    </div>
+                    <p style="color:var(--text-muted); font-size:13px; line-height:1.5; margin-bottom:16px;">${item.overview || 'Direct download or verified community mod package.'}</p>
+                    ${actionButtons}
+                </div>
+            `;
+        }
+
+        async function submitAppTorrentRequest() {
+            if (!currentItem) return;
+            showToast(`Adding ${currentItem.title} to qBittorrent...`);
+            const res = await fetch('/api/request_app_torrent', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    raw: currentItem.raw,
+                    download_url: currentItem.download_url,
+                    title: currentItem.title,
+                    indexer: currentItem.source,
+                    size: currentItem.size
+                })
+            });
+            const data = await res.json();
+            showToast(data.message, data.success);
+            if (data.success) closeModal();
+        }
+
+        function openAppDirectLink(url) {
+            if (!url) return;
+            window.open(url, '_blank');
+            showToast(`Opened ${currentItem ? currentItem.title : 'release'} in new tab!`, true);
+            if (currentItem) {
+                fetch('/api/log_app_view', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ title: currentItem.title, source: currentItem.source, url: url })
+                });
+            }
+            closeModal();
+        }
+
         async function submitAdultRequest() {
             if (!currentItem) return;
             showToast(`Adding ${currentItem.title} to qBittorrent...`);
@@ -1509,7 +1854,7 @@ class OmniSearchHandler(BaseHTTPRequestHandler):
                     card.innerHTML = `
                         <div class="card-clickable-hint">👆 Click to Choose</div>
                         <div class="card-poster">
-                            <span class="type-badge ${item.backend === 'adult' ? 'adult' : ''}">${item.type_label}</span>
+                            <span class="type-badge ${item.backend === 'adult' ? 'adult' : (item.backend === 'app' ? 'app' : '')}">${item.type_label}</span>
                             <img src="${posterImg}" alt="${item.title}" loading="lazy">
                         </div>
                         <div class="card-content">
@@ -1518,7 +1863,7 @@ class OmniSearchHandler(BaseHTTPRequestHandler):
                             <div class="card-desc">${item.overview || ''}</div>
                             <div class="card-actions">
                                 <button class="btn-choose" onclick="openItemModalByIndex(${index})">🎯 Choose Details / Releases</button>
-                                <button class="btn-quick" onclick="quickRequestByIndex(${index})">⚡ Quick Request All</button>
+                                <button class="btn-quick" onclick="quickRequestByIndex(${index})">${item.backend === 'app' ? (item.is_torrent ? '⚡ Download Torrent' : '🔗 Open Release') : '⚡ Quick Request All'}</button>
                             </div>
                         </div>
                     `;
@@ -1563,6 +1908,8 @@ class OmniSearchHandler(BaseHTTPRequestHandler):
                 loadBookReleasesModal(item, 'all');
             } else if (item.backend === 'adult') {
                 renderAdultModal(item);
+            } else if (item.backend === 'app') {
+                renderAppModal(item);
             }
         }
 
@@ -1872,6 +2219,30 @@ class OmniSearchHandler(BaseHTTPRequestHandler):
                 });
                 const d = await res.json();
                 showToast(d.message, d.success);
+            } else if (item.backend === 'app') {
+                if (item.is_torrent) {
+                    const res = await fetch('/api/request_app_torrent', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            raw: item.raw,
+                            download_url: item.download_url,
+                            title: item.title,
+                            indexer: item.source,
+                            size: item.size
+                        })
+                    });
+                    const d = await res.json();
+                    showToast(d.message, d.success);
+                } else {
+                    window.open(item.url, '_blank');
+                    showToast(`Opening ${item.title} on ${item.source}...`, true);
+                    fetch('/api/log_app_view', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ title: item.title, source: item.source, url: item.url })
+                    });
+                }
             }
         }
 
