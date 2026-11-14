@@ -7,6 +7,7 @@
 - 🎌 **Anime** (synced to Sonarr)
 - 🎧 **Audiobooks** (synced with Prowlarr & qBittorrent / Audiobookshelf)
 - 📖 **E-books** (synced with OpenLibrary, Prowlarr & qBittorrent)
+- 🔞 **Adult / NSFW Content** (synced with Prowlarr adult indexers & qBittorrent)
 
 ---
 
@@ -14,11 +15,12 @@
 
 - **All-in-One Media Requests**: Replaces the need to switch between multiple request portals (like Seerr and Shelfarr).
 - **Interactive Season & Format Selection**: Select individual episodes, full seasons, or specific audiobook/ebook formats.
+- **Family-Safe by Default with NSFW Toggle**: All adult indexers are completely disabled by default. A dedicated `🔞 NSFW` toggle switch and category selector allow querying adult releases when desired.
 - **Direct Automation Integrations**:
   - **Radarr**: Automatic movie search, metadata fetch, and root folder import.
   - **Sonarr**: Comprehensive show search, season monitoring, and anime categorization.
-  - **Prowlarr**: Multi-indexer query aggregation for audiobooks and literature.
-  - **qBittorrent**: Automated torrent submission with tagged categories.
+  - **Prowlarr**: Multi-indexer query aggregation for audiobooks, literature, and adult content (Torznab category 6000).
+  - **qBittorrent**: Automated torrent submission with tagged categories (`movies`, `tv`, `anime`, `audiobooks`, `ebooks`, `adult`).
 - **Lightweight & Containerized**: Zero external runtime pip dependencies (built entirely on Python standard library), runs in a small Alpine-based Docker container.
 
 ---

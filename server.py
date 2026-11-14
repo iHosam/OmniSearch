@@ -445,6 +445,65 @@ def search_prowlarr_releases(query, format_filter="all"):
     releases.sort(key=lambda x: x["seeders"], reverse=True)
     return releases[:35]
 
+
+def search_prowlarr_adult(query):
+    """
+    Searches Prowlarr specifically for adult/NSFW content (Torznab category 6000).
+    """
+    url = f"{PROWLARR_BASE}/search?query={urllib.parse.quote(query)}&categories=6000"
+    req = urllib.request.Request(url, headers={"X-Api-Key": PROWLARR_KEY})
+    results = []
+    try:
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            data = json.loads(resp.read().decode())
+            for r in data:
+                title = r.get("title", "").strip()
+                if not title:
+                    continue
+                size_bytes = r.get("size", 0)
+                if size_bytes > 1024 * 1024 * 1024:
+                    size_str = f"{round(size_bytes / (1024 * 1024 * 1024), 2)} GB"
+                else:
+                    size_str = f"{round(size_bytes / (1024 * 1024), 1)} MB"
+
+                download_url = r.get("downloadUrl") or r.get("guid") or r.get("magnetUrl") or ""
+                indexer = r.get("indexer", "Prowlarr Adult")
+                seeders = r.get("seeders", 0)
+                pub_date = r.get("publishDate", "")[:10] if r.get("publishDate") else ""
+                year = pub_date[:4] if pub_date else ""
+
+                poster_svg = f"""data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="450" viewBox="0 0 300 450"><defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="%23881337"/><stop offset="50%" stop-color="%234c0519"/><stop offset="100%" stop-color="%231f131f"/></linearGradient></defs><rect width="100%" height="100%" fill="url(%23g)" rx="12"/><circle cx="150" cy="180" r="50" fill="%23f43f5e" opacity="0.25"/><text x="150" y="195" font-family="sans-serif" font-size="42" font-weight="bold" fill="%23f43f5e" text-anchor="middle">🔞</text><text x="150" y="270" font-family="sans-serif" font-size="16" font-weight="bold" fill="%23fda4af" text-anchor="middle">ADULT (18+)</text><text x="150" y="300" font-family="sans-serif" font-size="12" fill="%239ca3af" text-anchor="middle">{indexer}</text></svg>"""
+
+                results.append({
+                    "id": r.get("guid") or r.get("infoUrl") or title,
+                    "type": "adult",
+                    "type_label": "🔞 Adult (18+)",
+                    "backend": "adult",
+                    "title": title,
+                    "year": year,
+                    "author": f"{indexer} • {size_str} • {seeders} seeds",
+                    "overview": f"Indexed by {indexer}. Size: {size_str} | Seeders: {seeders} | Date: {pub_date}",
+                    "poster": poster_svg,
+                    "download_url": download_url,
+                    "seeders": seeders,
+                    "size_str": size_str,
+                    "indexer": indexer,
+                    "raw": {
+                        "title": title,
+                        "year": year,
+                        "overview": f"Indexed by {indexer} ({size_str})",
+                        "download_url": download_url,
+                        "indexer": indexer,
+                        "seeders": seeders,
+                        "size_str": size_str
+                    }
+                })
+    except Exception as e:
+        print("Prowlarr adult search error:", e)
+
+    results.sort(key=lambda x: x.get("seeders", 0), reverse=True)
+    return results[:40]
+
 # --- Request Tracking Helpers ---
 def save_db_request(req_type, title, year="", author="", overview="", poster="", external_id="", status="submitted", issue_message="", selected_release=""):
     con = sqlite3.connect(DB_PATH)
@@ -498,6 +557,7 @@ class OmniSearchHandler(BaseHTTPRequestHandler):
         if path == "/api/search":
             q = params.get("q", [""])[0].strip()
             cat = params.get("category", ["all"])[0].strip()
+            nsfw = params.get("nsfw", ["false"])[0].strip().lower() in ("true", "1", "yes")
 
             if not q:
                 self.send_json({"results": []})
@@ -512,6 +572,8 @@ class OmniSearchHandler(BaseHTTPRequestHandler):
                 results.extend(search_sonarr_series(q, filter_anime=True))
             if cat in ["all", "audiobooks", "ebooks"]:
                 results.extend(search_books_openlibrary(q))
+            if cat == "adult" or (cat == "all" and nsfw):
+                results.extend(search_prowlarr_adult(q))
 
             self.send_json({"results": results})
             return
@@ -703,6 +765,24 @@ class OmniSearchHandler(BaseHTTPRequestHandler):
             self.send_json({"success": ok, "message": msg})
             return
 
+        elif parsed.path == "/api/request_adult":
+            raw = data.get("raw", {})
+            download_url = data.get("download_url") or raw.get("download_url") or ""
+            title = data.get("title") or raw.get("title") or "Adult Release"
+            indexer = data.get("indexer") or raw.get("indexer") or "Prowlarr"
+            year = data.get("year") or raw.get("year") or ""
+            overview = data.get("overview") or raw.get("overview") or ""
+
+            if not download_url:
+                self.send_json({"success": False, "message": "No download URL or magnet link available for this release."})
+                return
+
+            ok, msg = qbit_add_torrent(download_url, category="adult")
+            status = "downloading" if ok else "failed"
+            save_db_request("adult", title, year, indexer, overview, "", download_url, status, f"Sent to qBittorrent via {indexer}", selected_release=title)
+            self.send_json({"success": ok, "message": f"Grabbed release from {indexer}! Sent to qBittorrent (adult)." if ok else f"qBittorrent error: {msg}"})
+            return
+
     def send_json(self, obj):
         body = json.dumps(obj).encode("utf-8")
         self.send_response(200)
@@ -823,6 +903,73 @@ class OmniSearchHandler(BaseHTTPRequestHandler):
             transition: 0.2s;
         }
         .search-btn:hover { background: var(--primary-hover); }
+
+        
+        /* NSFW Toggle & Badge Styling */
+        .nsfw-toggle-wrap {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(244, 63, 94, 0.1);
+            border: 1px solid rgba(244, 63, 94, 0.3);
+            border-radius: 10px;
+            padding: 8px 14px;
+            cursor: pointer;
+            user-select: none;
+            transition: all 0.2s ease;
+        }
+        .nsfw-toggle-wrap:hover {
+            background: rgba(244, 63, 94, 0.18);
+            border-color: rgba(244, 63, 94, 0.5);
+        }
+        .nsfw-switch {
+            position: relative;
+            display: inline-block;
+            width: 38px;
+            height: 20px;
+        }
+        .nsfw-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .nsfw-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #374151;
+            transition: .25s;
+            border-radius: 20px;
+        }
+        .nsfw-slider:before {
+            position: absolute;
+            content: "";
+            height: 14px;
+            width: 14px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: .25s;
+            border-radius: 50%;
+        }
+        .nsfw-switch input:checked + .nsfw-slider {
+            background-color: #f43f5e;
+            box-shadow: 0 0 10px rgba(244, 63, 94, 0.6);
+        }
+        .nsfw-switch input:checked + .nsfw-slider:before {
+            transform: translateX(18px);
+        }
+        .nsfw-label {
+            font-size: 13px;
+            font-weight: 700;
+            color: #fca5a5;
+            letter-spacing: 0.3px;
+        }
+        .type-badge.adult {
+            background: rgba(244, 63, 94, 0.25) !important;
+            color: #fb7185 !important;
+            border-color: rgba(244, 63, 94, 0.5) !important;
+        }
 
         .media-grid {
             display: grid;
@@ -1161,15 +1308,23 @@ class OmniSearchHandler(BaseHTTPRequestHandler):
         <!-- SEARCH TAB -->
         <div id="searchTab">
             <div class="search-box">
-                <select id="searchCategory">
+                <select id="searchCategory" onchange="onCategoryChange()">
                     <option value="all">🌐 All Media</option>
                     <option value="movies">🎬 Movies (Radarr)</option>
                     <option value="tv">📺 TV Shows (Sonarr)</option>
                     <option value="anime">⛩️ Anime (Sonarr)</option>
                     <option value="audiobooks">🎧 Audiobooks (qBittorrent)</option>
                     <option value="ebooks">📚 Ebooks (qBittorrent)</option>
+                    <option value="adult">🔞 Adult / NSFW (Prowlarr)</option>
                 </select>
-                <input type="text" id="searchInput" placeholder="Search title, anime, author, or book..." onkeydown="if(event.key==='Enter') executeSearch()">
+                <div class="nsfw-toggle-wrap" title="Include Adult & NSFW Content" onclick="toggleNsfwCheckbox(event)">
+                    <label class="nsfw-switch" onclick="event.stopPropagation()">
+                        <input type="checkbox" id="nsfwToggle" onchange="onNsfwToggleChange()">
+                        <span class="nsfw-slider"></span>
+                    </label>
+                    <span class="nsfw-label">🔞 NSFW</span>
+                </div>
+                <input type="text" id="searchInput" placeholder="Search movies, TV, anime, books, or adult releases..." onkeydown="if(event.key==='Enter') executeSearch()">
                 <button class="search-btn" id="searchSubmitBtn" onclick="executeSearch()">Search</button>
             </div>
 
@@ -1242,6 +1397,76 @@ class OmniSearchHandler(BaseHTTPRequestHandler):
             }
         }
 
+        
+        function toggleNsfwCheckbox(e) {
+            const cb = document.getElementById('nsfwToggle');
+            cb.checked = !cb.checked;
+            onNsfwToggleChange();
+        }
+
+        function onNsfwToggleChange() {
+            const cb = document.getElementById('nsfwToggle');
+            const cat = document.getElementById('searchCategory');
+            if (!cb.checked && cat.value === 'adult') {
+                cat.value = 'all';
+            }
+            if (document.getElementById('searchInput').value.trim()) {
+                executeSearch();
+            }
+        }
+
+        function onCategoryChange() {
+            const cat = document.getElementById('searchCategory').value;
+            const cb = document.getElementById('nsfwToggle');
+            if (cat === 'adult') {
+                cb.checked = true;
+            }
+            if (document.getElementById('searchInput').value.trim()) {
+                executeSearch();
+            }
+        }
+
+        function renderAdultModal(item) {
+            const dyn = document.getElementById('modalDynamicContent');
+            const raw = item.raw || {};
+            dyn.innerHTML = `
+                <div style="background:#1f131f; padding:20px; border-radius:12px; border:1px solid rgba(244, 63, 94, 0.35);">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                        <h4 style="font-size:16px; color:#fda4af;">🔞 Adult Release Information</h4>
+                        <span style="background:rgba(244, 63, 94, 0.25); color:#fb7185; padding:3px 10px; border-radius:6px; font-weight:bold; font-size:12px;">${item.indexer || 'Prowlarr'}</span>
+                    </div>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:16px; background:rgba(0,0,0,0.3); padding:12px; border-radius:8px;">
+                        <div><span style="color:var(--text-muted); font-size:12px;">File Size:</span> <b style="color:#f3f4f6;">${item.size_str || 'Unknown'}</b></div>
+                        <div><span style="color:var(--text-muted); font-size:12px;">Seeders:</span> <b style="color:#10b981;">${item.seeders || 0} active</b></div>
+                        <div><span style="color:var(--text-muted); font-size:12px;">Indexer:</span> <b style="color:#93c5fd;">${item.indexer || 'Prowlarr'}</b></div>
+                        <div><span style="color:var(--text-muted); font-size:12px;">qBit Category:</span> <b style="color:#fbbf24;">adult</b></div>
+                    </div>
+                    <p style="color:var(--text-muted); font-size:13px; margin-bottom:18px;">Click below to dispatch this torrent/magnet directly into qBittorrent under the adult downloads folder.</p>
+                    <button class="btn-download-action" style="background:#f43f5e; border-color:#e11d48; padding:12px 24px; font-size:15px; width:100%; border-radius:10px; cursor:pointer;" onclick="submitAdultRequest()">⬇️ Download Release to qBittorrent</button>
+                </div>
+            `;
+        }
+
+        async function submitAdultRequest() {
+            if (!currentItem) return;
+            showToast(`Adding ${currentItem.title} to qBittorrent...`);
+            const res = await fetch('/api/request_adult', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    raw: currentItem.raw,
+                    download_url: currentItem.download_url,
+                    title: currentItem.title,
+                    indexer: currentItem.indexer,
+                    year: currentItem.year,
+                    overview: currentItem.overview
+                })
+            });
+            const data = await res.json();
+            showToast(data.message, data.success);
+            if (data.success) closeModal();
+        }
+
         function closeModal() {
             document.getElementById('detailModal').style.display = 'none';
             currentItem = null;
@@ -1259,7 +1484,8 @@ class OmniSearchHandler(BaseHTTPRequestHandler):
             status.innerHTML = '🔍 Searching media libraries and indexers...';
 
             try {
-                const res = await fetch(`/api/search?q=${encodeURIComponent(q)}&category=${cat}`);
+                const nsfw = document.getElementById('nsfwToggle').checked;
+                const res = await fetch(`/api/search?q=${encodeURIComponent(q)}&category=${cat}&nsfw=${nsfw}`);
                 const data = await res.json();
                 const results = data.results || [];
 
@@ -1283,7 +1509,7 @@ class OmniSearchHandler(BaseHTTPRequestHandler):
                     card.innerHTML = `
                         <div class="card-clickable-hint">👆 Click to Choose</div>
                         <div class="card-poster">
-                            <span class="type-badge">${item.type_label}</span>
+                            <span class="type-badge ${item.backend === 'adult' ? 'adult' : ''}">${item.type_label}</span>
                             <img src="${posterImg}" alt="${item.title}" loading="lazy">
                         </div>
                         <div class="card-content">
@@ -1335,6 +1561,8 @@ class OmniSearchHandler(BaseHTTPRequestHandler):
                 loadSeriesEpisodesModal(item);
             } else if (item.backend === 'book') {
                 loadBookReleasesModal(item, 'all');
+            } else if (item.backend === 'adult') {
+                renderAdultModal(item);
             }
         }
 
@@ -1626,6 +1854,21 @@ class OmniSearchHandler(BaseHTTPRequestHandler):
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ raw: item.raw, book_type: 'audiobook' })
+                });
+                const d = await res.json();
+                showToast(d.message, d.success);
+            } else if (item.backend === 'adult') {
+                const res = await fetch('/api/request_adult', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        raw: item.raw,
+                        download_url: item.download_url,
+                        title: item.title,
+                        indexer: item.indexer,
+                        year: item.year,
+                        overview: item.overview
+                    })
                 });
                 const d = await res.json();
                 showToast(d.message, d.success);
