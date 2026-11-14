@@ -536,6 +536,22 @@ def ensure_flaresolverr_session():
         except Exception as e:
             print("FlareSolverr session init warning:", e)
 
+def detect_app_platform(title, source=""):
+    t = title.lower()
+    if source == "LiteAPKs":
+        return "Android", "🤖 Android", "platform-android"
+    if re.search(r'\b(android|apk|apks|xapk|aab)\b', t):
+        return "Android", "🤖 Android", "platform-android"
+    if re.search(r'\b(mac|macos|mac os|osx|os x|dmg)\b', t):
+        return "macOS", "🍏 macOS", "platform-mac"
+    if re.search(r'\b(linux|ubuntu|debian|fedora|arch|appimage|flatpak)\b', t):
+        return "Linux", "🐧 Linux", "platform-linux"
+    if re.search(r'\b(windows|win10|win11|win64|win32|\bwin\b|\bpc\b|x64|x86|\bexe\b|portable|pre-?activated|crackshash|ftuapps|spotx)\b', t):
+        return "Windows", "🪟 Windows", "platform-windows"
+    if source == "Mobilism":
+        return "Android", "🤖 Android", "platform-android"
+    return "Windows", "🪟 Windows", "platform-windows"
+
 def search_liteapks(query):
     results = []
     try:
@@ -562,12 +578,17 @@ def search_liteapks(query):
                 if not title or not link:
                     continue
 
+                p_code, p_label, p_class = detect_app_platform(title, "LiteAPKs")
+
                 results.append({
                     "id": link,
                     "title": title,
                     "version": version,
-                    "author": f"LiteAPKs • {size} • {version}" if size else f"LiteAPKs • {version}",
-                    "overview": f"Source: LiteAPKs Direct. Mod: {mod_info}. Version: {version}. Size: {size}.",
+                    "platform": p_code,
+                    "platform_label": p_label,
+                    "platform_class": p_class,
+                    "author": f"{p_label} • LiteAPKs • {size} • {version}" if size else f"{p_label} • LiteAPKs • {version}",
+                    "overview": f"Source: LiteAPKs Direct. Mod: {mod_info}. Platform: {p_label}. Version: {version}. Size: {size}.",
                     "mod_info": mod_info,
                     "size": size,
                     "poster": icon,
@@ -582,6 +603,8 @@ def search_liteapks(query):
                         "title": title,
                         "url": link,
                         "source": "LiteAPKs",
+                        "platform": p_code,
+                        "platform_label": p_label,
                         "mod_info": mod_info,
                         "version": version,
                         "size": size,
@@ -635,14 +658,19 @@ def search_mobilism(query):
                 tags = re.findall(r'\[([^\]]+)\]', clean_title)
                 mod_tag = ", ".join(tags) if tags else "Forum Mod"
 
-                poster_svg = f"""data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="450" viewBox="0 0 300 450"><defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="%231e293b"/><stop offset="50%" stop-color="%230f172a"/><stop offset="100%" stop-color="%23020617"/></linearGradient></defs><rect width="100%" height="100%" fill="url(%23g)" rx="12"/><circle cx="150" cy="180" r="50" fill="%2338bdf8" opacity="0.2"/><text x="150" y="195" font-family="sans-serif" font-size="44" font-weight="bold" fill="%2338bdf8" text-anchor="middle">📱</text><text x="150" y="270" font-family="sans-serif" font-size="15" font-weight="bold" fill="%23e2e8f0" text-anchor="middle">MOBILISM</text><text x="150" y="295" font-family="sans-serif" font-size="12" fill="%2394a3b8" text-anchor="middle">Verified Release</text></svg>"""
+                p_code, p_label, p_class = detect_app_platform(clean_title, "Mobilism")
+
+                poster_svg = f"""data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="450" viewBox="0 0 300 450"><defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="%231e293b"/><stop offset="50%" stop-color="%230f172a"/><stop offset="100%" stop-color="%23020617"/></linearGradient></defs><rect width="100%" height="100%" fill="url(%23g)" rx="12"/><circle cx="150" cy="180" r="50" fill="%2338bdf8" opacity="0.2"/><text x="150" y="195" font-family="sans-serif" font-size="44" font-weight="bold" fill="%2338bdf8" text-anchor="middle">📱</text><text x="150" y="270" font-family="sans-serif" font-size="15" font-weight="bold" fill="%23e2e8f0" text-anchor="middle">MOBILISM</text><text x="150" y="295" font-family="sans-serif" font-size="12" fill="%2394a3b8" text-anchor="middle">{p_label}</text></svg>"""
 
                 results.append({
                     "id": clean_url,
                     "title": clean_title,
                     "version": version,
-                    "author": f"Mobilism • {mod_tag}",
-                    "overview": f"Source: Mobilism Forum. Tags: {mod_tag}. Click to view release thread and download.",
+                    "platform": p_code,
+                    "platform_label": p_label,
+                    "platform_class": p_class,
+                    "author": f"{p_label} • Mobilism • {mod_tag}",
+                    "overview": f"Source: Mobilism Forum. Platform: {p_label}. Tags: {mod_tag}. Click to view release thread and download.",
                     "mod_info": mod_tag,
                     "size": "",
                     "poster": poster_svg,
@@ -657,6 +685,8 @@ def search_mobilism(query):
                         "title": clean_title,
                         "url": clean_url,
                         "source": "Mobilism",
+                        "platform": p_code,
+                        "platform_label": p_label,
                         "mod_info": mod_tag,
                         "is_torrent": False
                     }
@@ -689,14 +719,19 @@ def search_prowlarr_software(query):
                 ver_match = re.search(r'v(\d+[\.\d\w\-_]+)', title)
                 version = "v" + ver_match.group(1) if ver_match else ""
 
-                poster_svg = f"""data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="450" viewBox="0 0 300 450"><defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="%23064e3b"/><stop offset="50%" stop-color="%23022c22"/><stop offset="100%" stop-color="%23021f18"/></linearGradient></defs><rect width="100%" height="100%" fill="url(%23g)" rx="12"/><circle cx="150" cy="180" r="50" fill="%2310b981" opacity="0.2"/><text x="150" y="195" font-family="sans-serif" font-size="44" font-weight="bold" fill="%2310b981" text-anchor="middle">💻</text><text x="150" y="270" font-family="sans-serif" font-size="15" font-weight="bold" fill="%23a7f3d0" text-anchor="middle">SOFTWARE TORRENT</text><text x="150" y="295" font-family="sans-serif" font-size="12" fill="%236ee7b7" text-anchor="middle">{indexer}</text></svg>"""
+                p_code, p_label, p_class = detect_app_platform(title, indexer)
+
+                poster_svg = f"""data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="450" viewBox="0 0 300 450"><defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="%23064e3b"/><stop offset="50%" stop-color="%23022c22"/><stop offset="100%" stop-color="%23021f18"/></linearGradient></defs><rect width="100%" height="100%" fill="url(%23g)" rx="12"/><circle cx="150" cy="180" r="50" fill="%2310b981" opacity="0.2"/><text x="150" y="195" font-family="sans-serif" font-size="44" font-weight="bold" fill="%2310b981" text-anchor="middle">💻</text><text x="150" y="270" font-family="sans-serif" font-size="15" font-weight="bold" fill="%23a7f3d0" text-anchor="middle">SOFTWARE TORRENT</text><text x="150" y="295" font-family="sans-serif" font-size="12" fill="%236ee7b7" text-anchor="middle">{p_label}</text></svg>"""
 
                 results.append({
                     "id": r.get("guid") or download_url or title,
                     "title": title,
                     "version": version,
-                    "author": f"{indexer} • {size_str} • {seeders} seeds",
-                    "overview": f"Indexed by {indexer}. Size: {size_str} | Seeders: {seeders}.",
+                    "platform": p_code,
+                    "platform_label": p_label,
+                    "platform_class": p_class,
+                    "author": f"{p_label} • {indexer} • {size_str} • {seeders} seeds",
+                    "overview": f"Indexed by {indexer}. Platform: {p_label}. Size: {size_str} | Seeders: {seeders}.",
                     "mod_info": f"{indexer} ({seeders} seeds)",
                     "size": size_str,
                     "poster": poster_svg,
@@ -712,6 +747,8 @@ def search_prowlarr_software(query):
                         "title": title,
                         "download_url": download_url,
                         "indexer": indexer,
+                        "platform": p_code,
+                        "platform_label": p_label,
                         "seeders": seeders,
                         "size_str": size_str,
                         "is_torrent": True
@@ -1242,6 +1279,49 @@ class OmniSearchHandler(BaseHTTPRequestHandler):
             color: #38bdf8 !important;
             border-color: rgba(56, 189, 248, 0.5) !important;
         }
+        .platform-badge {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 4px 9px;
+            border-radius: 6px;
+            backdrop-filter: blur(6px);
+            z-index: 2;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            display: inline-flex;
+            align-items: center;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+        }
+        .platform-android {
+            background: rgba(16, 185, 129, 0.3) !important;
+            color: #34d399 !important;
+            border-color: rgba(52, 211, 153, 0.5) !important;
+        }
+        .platform-windows {
+            background: rgba(2, 132, 199, 0.3) !important;
+            color: #38bdf8 !important;
+            border-color: rgba(56, 189, 248, 0.5) !important;
+        }
+        .platform-mac {
+            background: rgba(168, 85, 247, 0.3) !important;
+            color: #c084fc !important;
+            border-color: rgba(192, 132, 252, 0.5) !important;
+        }
+        .platform-linux {
+            background: rgba(245, 158, 11, 0.3) !important;
+            color: #fbbf24 !important;
+            border-color: rgba(251, 191, 36, 0.5) !important;
+        }
+        .platform-inline-tag {
+            display: inline-block;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 1px 7px;
+            border-radius: 5px;
+            margin-right: 4px;
+        }
 
         .media-grid {
             display: grid;
@@ -1601,6 +1681,16 @@ class OmniSearchHandler(BaseHTTPRequestHandler):
                 <button class="search-btn" id="searchSubmitBtn" onclick="executeSearch()">Search</button>
             </div>
 
+            <!-- Platform Filter Pills (Visible when searching Apps & Software) -->
+            <div id="platformFilterBar" style="display: none; margin: -8px 0 22px 0; gap: 8px; flex-wrap: wrap; align-items: center;">
+                <span style="font-size: 13px; font-weight: 600; color: var(--text-muted); margin-right: 4px;">Platform Filter:</span>
+                <button class="pill active" id="filter-all" onclick="filterByPlatform('all')">🌐 All Platforms</button>
+                <button class="pill" id="filter-Android" onclick="filterByPlatform('Android')">🤖 Android</button>
+                <button class="pill" id="filter-Windows" onclick="filterByPlatform('Windows')">🪟 Windows</button>
+                <button class="pill" id="filter-macOS" onclick="filterByPlatform('macOS')">🍏 macOS</button>
+                <button class="pill" id="filter-Linux" onclick="filterByPlatform('Linux')">🐧 Linux</button>
+            </div>
+
             <div id="resultsGrid" class="media-grid"></div>
             <div id="searchStatus" style="text-align: center; color: var(--text-muted); margin-top: 40px; font-size: 16px;">
                 Type a query above to search directly across your media stack.
@@ -1694,9 +1784,33 @@ class OmniSearchHandler(BaseHTTPRequestHandler):
             if (cat === 'adult') {
                 cb.checked = true;
             }
+            const pBar = document.getElementById('platformFilterBar');
+            if (pBar) {
+                pBar.style.display = (cat === 'apps') ? 'flex' : 'none';
+            }
+            window._selectedPlatform = 'all';
+            updatePlatformPills();
             if (document.getElementById('searchInput').value.trim()) {
                 executeSearch();
             }
+        }
+
+        window._selectedPlatform = 'all';
+        function filterByPlatform(plat) {
+            window._selectedPlatform = plat;
+            updatePlatformPills();
+            renderFilteredCards();
+        }
+
+        function updatePlatformPills() {
+            const pills = document.querySelectorAll('#platformFilterBar .pill');
+            pills.forEach(p => {
+                if (p.id === 'filter-' + window._selectedPlatform) {
+                    p.classList.add('active');
+                } else {
+                    p.classList.remove('active');
+                }
+            });
         }
 
         function renderAdultModal(item) {
@@ -1746,11 +1860,13 @@ class OmniSearchHandler(BaseHTTPRequestHandler):
                 <div style="background:#0f172a; padding:20px; border-radius:12px; border:1px solid rgba(56, 189, 248, 0.35);">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
                         <h4 style="font-size:16px; color:#38bdf8;">📱 ${item.source || 'App'} Package Details</h4>
-                        <span style="background:rgba(56, 189, 248, 0.2); color:#38bdf8; padding:3px 10px; border-radius:6px; font-weight:bold; font-size:12px;">${item.source || 'App'}</span>
+                        <span class="platform-badge ${item.platform_class || ''}" style="position:static; margin-left:auto;">${item.platform_label || 'Universal'}</span>
                     </div>
                     <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:16px; background:rgba(0,0,0,0.3); padding:12px; border-radius:8px;">
+                        <div><span style="color:var(--text-muted); font-size:12px;">Platform / OS:</span> <b style="color:#38bdf8;">${item.platform_label || 'Universal'}</b></div>
                         <div><span style="color:var(--text-muted); font-size:12px;">Version:</span> <b style="color:#f3f4f6;">${item.version || 'Latest'}</b></div>
                         <div><span style="color:var(--text-muted); font-size:12px;">Package Size:</span> <b style="color:#f3f4f6;">${item.size || raw.size_str || 'N/A'}</b></div>
+                        <div><span style="color:var(--text-muted); font-size:12px;">Release Source:</span> <b style="color:#f3f4f6;">${item.source || 'App'}</b></div>
                         <div style="grid-column: span 2;"><span style="color:var(--text-muted); font-size:12px;">Mod / Notes:</span> <b style="color:#34d399;">${item.mod_info || 'Direct Package'}</b></div>
                     </div>
                     <p style="color:var(--text-muted); font-size:13px; line-height:1.5; margin-bottom:16px;">${item.overview || 'Direct download or verified community mod package.'}</p>
@@ -1840,51 +1956,85 @@ class OmniSearchHandler(BaseHTTPRequestHandler):
                 }
 
                 status.style.display = 'none';
-                results.forEach((item, index) => {
-                    const card = document.createElement('div');
-                    card.className = 'card';
-                    card.onclick = (e) => {
-                        // If click was on button, button handler already fired
-                        if (e.target.tagName.toLowerCase() === 'button') return;
-                        openItemModal(item);
-                    };
-
-                    const posterImg = item.poster || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="300" fill="%23374151"><rect width="100%" height="100%"/><text x="50%" y="50%" fill="%239ca3af" text-anchor="middle">No Poster</text></svg>';
-
-                    card.innerHTML = `
-                        <div class="card-clickable-hint">👆 Click to Choose</div>
-                        <div class="card-poster">
-                            <span class="type-badge ${item.backend === 'adult' ? 'adult' : (item.backend === 'app' ? 'app' : '')}">${item.type_label}</span>
-                            <img src="${posterImg}" alt="${item.title}" loading="lazy">
-                        </div>
-                        <div class="card-content">
-                            <div class="card-title">${item.title}</div>
-                            <div class="card-meta">${item.year ? item.year : ''} ${item.author ? '• ' + item.author : ''}</div>
-                            <div class="card-desc">${item.overview || ''}</div>
-                            <div class="card-actions">
-                                <button class="btn-choose" onclick="openItemModalByIndex(${index})">🎯 Choose Details / Releases</button>
-                                <button class="btn-quick" onclick="quickRequestByIndex(${index})">${item.backend === 'app' ? (item.is_torrent ? '⚡ Download Torrent' : '🔗 Open Release') : '⚡ Quick Request All'}</button>
-                            </div>
-                        </div>
-                    `;
-                    grid.appendChild(card);
-                });
-
                 window._currentResults = results;
+
+                const pBar = document.getElementById('platformFilterBar');
+                if (pBar) {
+                    const hasApps = results.some(r => r.backend === 'app');
+                    pBar.style.display = (cat === 'apps' || hasApps) ? 'flex' : 'none';
+                }
+
+                renderFilteredCards();
+
             } catch (err) {
                 status.innerHTML = 'Error communicating with server: ' + err;
             }
         }
 
-        function openItemModalByIndex(index) {
-            if (window._currentResults && window._currentResults[index]) {
-                openItemModal(window._currentResults[index]);
+        function renderFilteredCards() {
+            const grid = document.getElementById('resultsGrid');
+            const status = document.getElementById('searchStatus');
+            grid.innerHTML = '';
+
+            let list = window._currentResults || [];
+            if (window._selectedPlatform && window._selectedPlatform !== 'all') {
+                list = list.filter(item => {
+                    if (item.backend !== 'app') return true;
+                    return item.platform === window._selectedPlatform;
+                });
+            }
+
+            if (list.length === 0) {
+                status.style.display = 'block';
+                status.innerHTML = 'No releases found for selected platform. Click "All Platforms" to view other versions.';
+                return;
+            }
+
+            status.style.display = 'none';
+            list.forEach((item, index) => {
+                const card = document.createElement('div');
+                card.className = 'card';
+                card.onclick = (e) => {
+                    if (e.target.tagName.toLowerCase() === 'button') return;
+                    openItemModal(item);
+                };
+
+                const posterImg = item.poster || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="300" fill="%23374151"><rect width="100%" height="100%"/><text x="50%" y="50%" fill="%239ca3af" text-anchor="middle">No Poster</text></svg>';
+
+                const platBadge = item.platform_label ? `<span class="platform-badge ${item.platform_class || ''}">${item.platform_label}</span>` : '';
+                const platMeta = item.platform_label ? `<span class="platform-inline-tag ${item.platform_class || ''}">${item.platform_label}</span>` : '';
+
+                card.innerHTML = `
+                    <div class="card-clickable-hint">👆 Click to Choose</div>
+                    <div class="card-poster">
+                        <span class="type-badge ${item.backend === 'adult' ? 'adult' : (item.backend === 'app' ? 'app' : '')}">${item.type_label}</span>
+                        ${platBadge}
+                        <img src="${posterImg}" alt="${item.title}" loading="lazy">
+                    </div>
+                    <div class="card-content">
+                        <div class="card-title">${item.title}</div>
+                        <div class="card-meta">${platMeta}${item.year ? item.year : ''} ${item.author ? (platMeta ? '• ' : '') + item.author : ''}</div>
+                        <div class="card-desc">${item.overview || ''}</div>
+                        <div class="card-actions">
+                            <button class="btn-choose" onclick="openFilteredModalByIndex(${index})">🎯 Choose Details / Releases</button>
+                            <button class="btn-quick" onclick="quickRequestFilteredByIndex(${index})">${item.backend === 'app' ? (item.is_torrent ? '⚡ Download Torrent' : '🔗 Open Release') : '⚡ Quick Request All'}</button>
+                        </div>
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+            window._filteredResults = list;
+        }
+
+        function openFilteredModalByIndex(index) {
+            if (window._filteredResults && window._filteredResults[index]) {
+                openItemModal(window._filteredResults[index]);
             }
         }
 
-        function quickRequestByIndex(index) {
-            if (window._currentResults && window._currentResults[index]) {
-                quickRequest(window._currentResults[index]);
+        function quickRequestFilteredByIndex(index) {
+            if (window._filteredResults && window._filteredResults[index]) {
+                quickRequest(window._filteredResults[index]);
             }
         }
 
