@@ -552,6 +552,34 @@ def detect_app_platform(title, source=""):
         return "Android", "🤖 Android", "platform-android"
     return "Windows", "🪟 Windows", "platform-windows"
 
+def make_software_poster_svg(platform_label, indexer_or_source):
+    if "Android" in platform_label:
+        g1, g2, icon, tcolor = "#064e3b", "#022c22", "🤖", "#34d399"
+    elif "Windows" in platform_label:
+        g1, g2, icon, tcolor = "#0c4a6e", "#082f49", "🪟", "#38bdf8"
+    elif "macOS" in platform_label:
+        g1, g2, icon, tcolor = "#4c1d95", "#2e1065", "🍏", "#c084fc"
+    elif "Linux" in platform_label:
+        g1, g2, icon, tcolor = "#78350f", "#451a03", "🐧", "#fbbf24"
+    else:
+        g1, g2, icon, tcolor = "#1e293b", "#0f172a", "💻", "#94a3b8"
+
+    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="300" height="450" viewBox="0 0 300 450">
+<defs>
+  <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+    <stop offset="0%" stop-color="{g1}"/>
+    <stop offset="100%" stop-color="{g2}"/>
+  </linearGradient>
+</defs>
+<rect width="100%" height="100%" fill="url(#bg)" rx="12"/>
+<circle cx="150" cy="190" r="54" fill="{tcolor}" opacity="0.12"/>
+<circle cx="150" cy="190" r="44" fill="{tcolor}" opacity="0.18"/>
+<text x="150" y="206" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif" font-size="46" text-anchor="middle">{icon}</text>
+<text x="150" y="275" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif" font-size="16" font-weight="bold" fill="{tcolor}" text-anchor="middle">{platform_label}</text>
+<text x="150" y="302" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif" font-size="12" font-weight="600" fill="#94a3b8" text-anchor="middle">{indexer_or_source}</text>
+</svg>"""
+    return f"data:image/svg+xml;utf8,{urllib.parse.quote(svg)}"
+
 def search_liteapks(query):
     results = []
     try:
@@ -597,7 +625,7 @@ def search_liteapks(query):
                     "source": "LiteAPKs",
                     "backend": "app",
                     "type": "app",
-                    "type_label": "📱 LiteAPKs (DDL)",
+                    "type_label": "📱 DDL",
                     "is_torrent": False,
                     "raw": {
                         "title": title,
@@ -659,8 +687,7 @@ def search_mobilism(query):
                 mod_tag = ", ".join(tags) if tags else "Forum Mod"
 
                 p_code, p_label, p_class = detect_app_platform(clean_title, "Mobilism")
-
-                poster_svg = f"""data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="450" viewBox="0 0 300 450"><defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="%231e293b"/><stop offset="50%" stop-color="%230f172a"/><stop offset="100%" stop-color="%23020617"/></linearGradient></defs><rect width="100%" height="100%" fill="url(%23g)" rx="12"/><circle cx="150" cy="180" r="50" fill="%2338bdf8" opacity="0.2"/><text x="150" y="195" font-family="sans-serif" font-size="44" font-weight="bold" fill="%2338bdf8" text-anchor="middle">📱</text><text x="150" y="270" font-family="sans-serif" font-size="15" font-weight="bold" fill="%23e2e8f0" text-anchor="middle">MOBILISM</text><text x="150" y="295" font-family="sans-serif" font-size="12" fill="%2394a3b8" text-anchor="middle">{p_label}</text></svg>"""
+                poster_svg = make_software_poster_svg(p_label, "Mobilism Forum")
 
                 results.append({
                     "id": clean_url,
@@ -679,7 +706,7 @@ def search_mobilism(query):
                     "source": "Mobilism",
                     "backend": "app",
                     "type": "app",
-                    "type_label": "📱 Mobilism (Forum)",
+                    "type_label": "💬 Forum",
                     "is_torrent": False,
                     "raw": {
                         "title": clean_title,
@@ -720,8 +747,7 @@ def search_prowlarr_software(query):
                 version = "v" + ver_match.group(1) if ver_match else ""
 
                 p_code, p_label, p_class = detect_app_platform(title, indexer)
-
-                poster_svg = f"""data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="450" viewBox="0 0 300 450"><defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="%23064e3b"/><stop offset="50%" stop-color="%23022c22"/><stop offset="100%" stop-color="%23021f18"/></linearGradient></defs><rect width="100%" height="100%" fill="url(%23g)" rx="12"/><circle cx="150" cy="180" r="50" fill="%2310b981" opacity="0.2"/><text x="150" y="195" font-family="sans-serif" font-size="44" font-weight="bold" fill="%2310b981" text-anchor="middle">💻</text><text x="150" y="270" font-family="sans-serif" font-size="15" font-weight="bold" fill="%23a7f3d0" text-anchor="middle">SOFTWARE TORRENT</text><text x="150" y="295" font-family="sans-serif" font-size="12" fill="%236ee7b7" text-anchor="middle">{p_label}</text></svg>"""
+                poster_svg = make_software_poster_svg(p_label, indexer)
 
                 results.append({
                     "id": r.get("guid") or download_url or title,
@@ -741,7 +767,7 @@ def search_prowlarr_software(query):
                     "seeders": seeders,
                     "backend": "app",
                     "type": "app",
-                    "type_label": "💻 Torrent Software",
+                    "type_label": "💻 Torrent",
                     "is_torrent": True,
                     "raw": {
                         "title": title,
@@ -1374,14 +1400,18 @@ class OmniSearchHandler(BaseHTTPRequestHandler):
             position: absolute;
             top: 8px;
             left: 8px;
-            background: rgba(17, 24, 39, 0.85);
+            background: rgba(17, 24, 39, 0.88);
             backdrop-filter: blur(4px);
-            padding: 4px 10px;
+            padding: 3px 8px;
             border-radius: 6px;
             font-size: 11px;
             font-weight: 700;
             text-transform: uppercase;
             border: 1px solid rgba(255, 255, 255, 0.1);
+            max-width: 48%;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
         .card-content {
             padding: 14px;
